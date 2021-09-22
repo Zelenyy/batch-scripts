@@ -5,18 +5,18 @@
 # J. Galan - Javier.Galan.Lacarra@cern.ch
 # 7 - Sep- 2020
 
-import os,sys, time, commands
-import stat
+import argparse
+import commands
+import os
+import sys
 
 # Change this to modify your log output directory!
-
 # Change this by your mail address!
 
+# FIXME(If this value don't edit manually, than should move this value to argument `default` of `parser.add_argument`)
 delay = 30
 repeat = 10
 
-narg = len(sys.argv)
-cfgFile = ""
 sectionName = ""
 jobName = ""
 email = ""
@@ -25,169 +25,94 @@ idOffset = 0
 
 duration = "7-00:00:00"
 
-if narg < 2:
-    print ""
-    print "----------------------------------------------------------------" 
-    print ""
-    print " This program launches restG4 jobs to slurm	    "
-    print ""
-    print " The usual restG4 command is : restG4 RML_FILE [SECTION_NAME]"
-    print ""
-    print " Values in brackets [] are optional"
-    print ""
-    print " Usage : restG4ToSlurm.py -c RML_FILE "
-    print ""
-    print " - Options : " 
-    print " ----------- " 
-    print ""
-    print " -n or --sectionName SECTION_NAME :"
-    print " Defines the name of the section to be used from RML_FILE"
-    print ""
-    print " -e or --email MAIL :"
-    print " It allows to specify the e-mail for batch system job notifications"
-    print ""
-    print " -i or --initialRun VALUE :"
-    print " An integer number to introduce the first run number."
-    print ""
-    print " -r or --repeat REPEAT_VALUE :"
-    print " This option defines the number of simulations we will launch (default is 10)"
-    print ""
-    print " -d or --delay DELAY_TIME :"
-    print " Time delay between launching 2 reapeated jobs (default is 30 seconds)"
-    print " Random seed is connected to the time stamp."
-    print ""
-    print " -j or --jobName JOB_NAME :"
-    print " JOB_NAME defines the name of scripts and output files stored under slurmJobs/"
-    print ""
-    print " -o or --onlyScripts :"
-    print " It will just generate the slurm scripts without launching to the queue"
-    print ""
-    print "----------------------------------------------------------------" 
-    print ""
-    sys.exit(1)
+# List of environment's keys which will added to SLURM environment
+ENV_KEYS = ["USER", "DATA", "REST", "PRESSURE", "GAS", "QUENCHER", "QUENCHER", "GEOMETRY", "G4", "PATH",
+            "LD_LIBRARY_PATH", "GARFIELD_", "HEED_", "PWD"]
 
-onlyScripts=0
+parser = argparse.ArgumentParser(
+    description="This program launches restG4 jobs to slurm. Values in brackets [] are optional"
+)
+parser.add_argument("-c", "--cfgFile", metavar="RML_FILE", required=True)
+parser.add_argument("-n", "--sectionName", default=sectionName,
+                    help="Defines the name of the section to be used from RML_FILE")
+parser.add_argument("-e", "--email", default=email,
+                    help="It allows to specify the e-mail for batch system job notifications")
+# FIXME(Unused option)
+# parser.add_argument("-i", "--initialRun", metavar="VALUE", help="An integer number to introduce the first run number.")
+parser.add_argument("-i", "--idOffset", default=idOffset, type=int)
+parser.add_argument("-r", "--repeat", metavar="REPEAT_VALUE", type=int, default=repeat,
+                    help="This option defines the number of simulations we will launch (default is 10)")
+parser.add_argument("-d", "--delay", metavar="DELAY_TIME", type=int, default=delay,
+                    help="Time delay between launching 2 reapeated jobs (default is 30 seconds)")
+parser.add_argument("-j", "--jobName", metavar="JOB_NAME", default=jobName,
+                    help="JOB_NAME defines the name of scripts and output files stored under slurmJobs/")
+# FIXME(Unused option)
+# parser.add_argument("-o", "--onlyScripts", action="store_true",
+#                     help="It will just generate the slurm scripts without launching to the queue")
+parser.add_argument("-l", "--logPath", default=logPath, help="log output directory")
 
-for x in range(narg-1):
-    if ( sys.argv[x+1] == "--repeat" or sys.argv[x+1] == "-r" ):
-        repeat = int(sys.argv[x+2])
+if len(sys.argv) < 2:
+    parser.print_help()
+    sys.exit(2)
 
-    if ( sys.argv[x+1] == "--cfgFile" or sys.argv[x+1] == "-c" ):
-        cfgFile = sys.argv[x+2]
+args = parser.parse_args()
 
-    if ( sys.argv[x+1] == "--logPath" or sys.argv[x+1] == "-l" ):
-        logPath = sys.argv[x+2]
+cfgFile = os.path.abspath(args.cfgFile)
 
-    if ( sys.argv[x+1] == "--idOffset" or sys.argv[x+1] == "-i" ):
-        idOffset = int(sys.argv[x+2])
+if args.jobName == "":
+    jobName = cfgFile[cfgFile.rfind("/") + 1:cfgFile.rfind(".rml")]
+else:
+    jobName = args.jobName
 
-    if ( sys.argv[x+1] == "--delay" or sys.argv[x+1] == "-d" ):
-        delay = int( sys.argv[x+2] )
+print ("Number of jobs to launch : " + str(args.repeat))
+print ("Jobs name : " + str(jobName))
+print ("Delay in seconds between jobs : " + str(args.delay))
 
-    if ( sys.argv[x+1] == "--sectionName" or sys.argv[x+1] == "-n" ):
-        sectionName = sys.argv[x+2]
+runNumber = args.idOffset
 
-    if ( sys.argv[x+1] == "--jobName" or sys.argv[x+1] == "-j" ):
-        jobName = sys.argv[x+2]
-
-    if ( sys.argv[x+1] == "--email" or sys.argv[x+1] == "-e" ):
-        email = sys.argv[x+2]
-
-    if ( sys.argv[x+1] == "--onlyScripts" or sys.argv[x+1] == "-o" ):
-        onlyScripts = 1
-
-if cfgFile == "":
-    print  ( "RML file was not provided. Use -c file.rml" )
-    sys.exit(1)
-
-if jobName == "":
-    jobName = cfgFile[cfgFile.rfind("/")+1:cfgFile.rfind(".rml")]
-
-print ( "Number of jobs to launch : " + str(repeat) )
-print ( "Jobs name : " + str(jobName) )
-print ( "Delay in seconds between jobs : " + str(delay) )
-
-runNumber = idOffset
-
-for x in xrange(repeat):
+for x in xrange(args.repeat):
     ################################################
     # Creating job environment and execution command
     ################################################
-    scriptName = "/tmp/" + os.environ["USER"] + ".slurm"
+    scriptName = os.path.join(os.sep, "tmp", os.environ["USER"] + ".slurm")
+    with open(scriptName, "w") as f:
+        f.write("#!/bin/bash\n\n")
+        f.write("#SBATCH -J " + str(runNumber) + "_" + jobName + "\n")
+        f.write("#SBATCH --begin=now+" + str((x + 1) * args.delay) + "\n")
+        f.write("#SBATCH --nodes=1\n")
+        if args.logPath != "":
+            name = jobName + "_" + str(runNumber)
+            f.writelines((
+                "#SBATCH -o " + os.path.join(args.logPath, name + ".log"),
+                "#SBATCH -e " + os.path.join(args.logPath, name + ".error")
+            ))
+        if args.email != "":
+            f.write("#SBATCH --mail-user " + args.email + "\n")
+        f.write("#SBATCH --ntasks=1\n")
+        f.write("#SBATCH --mail-type=ALL\n")
+        f.write("#SBATCH -p bifi\n")
+        f.write("#SBATCH --time=" + duration + " # days-hh:mm:ss\n")
+        f.write("export RUN_NUMBER=" + str(runNumber) + "\n\n")
+        # We transfer env variables to SLURM environment
+        for env_key in ENV_KEYS:
+            for key in os.environ.keys():
+                if key.find(env_key) == 0:
+                    f.write("export " + key + "=" + os.environ[key] + "\n")
+                    #       print( "export " + key + "=" + os.environ[key] +"\n" )
+        # The usual restG4 command is : restG4 RML_FILE [SECTION_NAME].
+        command = "srun restG4 " + cfgFile + " " + args.sectionName
+        f.write(command + "\n")
+        runNumber += 1
+    print commands.getstatusoutput("sbatch " + scriptName)
 
-    f = open( scriptName, "w" )
-    f.write("#!/bin/bash\n\n")
-
-    f.write("#SBATCH -J " + str(x+idOffset) + "_" + jobName + "\n" )
-    f.write("#SBATCH --begin=now+" + str((x+1)*delay) + "\n" )
-    f.write("#SBATCH --nodes=1\n" )
-    if logPath != "":
-        f.write("#SBATCH -o " + logPath + "/" + jobName + "_" + str(x+idOffset) + ".log\n")
-        f.write("#SBATCH -e " + logPath + "/" + jobName + "_" + str(x+idOffset) + ".error\n")
-    if email != "":
-        f.write("#SBATCH --mail-user " + email + "\n")
-    f.write("#SBATCH --ntasks=1\n")
-    f.write("#SBATCH --mail-type=ALL\n")
-    f.write("#SBATCH -p bifi\n")
-    f.write("#SBATCH --time=" + duration + " # days-hh:mm:ss\n")
-
-    f.write("export RUN_NUMBER="+ str(runNumber) +"\n\n")
-    runNumber = runNumber + 1
-    f.write("export USER="+ os.environ['USER']+"\n\n")
-
-    # We transfer env variables to SLURM environment
-    for key in os.environ.keys(): 
-        if key.find( "DATA") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "REST") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "PRESSURE") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "GAS") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "QUENCHER") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "GEOMETRY") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "G4") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "PATH") == 0:
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find("LD_LIBRARY_PATH") == 0:
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "GARFIELD_") == 0:
-     #       print( "export " + key + "=" + os.environ[key] +"\n" )
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "HEED_") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n" )
-        if key.find( "PWD") == 0:
-            f.write( "export " + key + "=" + os.environ[key] +"\n\n" )
-
-    if cfgFile[0] == "/": # It is absolute path
-        command = "srun restG4 " + cfgFile + " " + sectionName
-    else: # It is relative path
-        command = "srun restG4 " + os.environ['PWD'] + "/" + cfgFile + " " + sectionName
-    f.write(  command + "\n" )
-    f.close()
-
-    print commands.getstatusoutput( "sbatch " + scriptName )
-
-    #st = os.stat( scriptName + ".sh" )
-    #os.chmod( scriptName + ".sh", st.st_mode | stat.S_IEXEC)
+    # st = os.stat( scriptName + ".sh" )
+    # os.chmod( scriptName + ".sh", st.st_mode | stat.S_IEXEC)
     #################################################
 
-    #cont = 0
+    # cont = 0
     #
-    #rpt = repeat
-    #while ( rpt > 0 ):
+    # rpt = repeat
+    # while ( rpt > 0 ):
     #    cont = cont + 1
     #    rpt = rpt-1
     #
@@ -204,10 +129,10 @@ for x in xrange(repeat):
     #    if onlyScripts == 0:
     #        print "---> Launching : " + command
     #
-    #        condorCommand = "condor_submit " + scriptName + "_" + str(cont) + ".condor" 
+    #        condorCommand = "condor_submit " + scriptName + "_" + str(cont) + ".condor"
     #        print "Condor command : " + condorCommand
     #
-    #        print "Waiting " + str(sleep) + " seconds to launch next job" 
+    #        print "Waiting " + str(sleep) + " seconds to launch next job"
     #        time.sleep(sleep)
     #
     #        print commands.getstatusoutput( condorCommand )
@@ -216,5 +141,5 @@ for x in xrange(repeat):
     #        print "---> To launch : " + command
     #
     #    print ""
-    #print ""
+    # print ""
     ###
